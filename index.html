@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Podcast 專業播放器</title>
+    <style>
+        :root { --primary-color: #00d2ff; }
+        body { 
+            background: #0f0f0f; color: white; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            height: 100vh; margin: 0; 
+        }
+        .player-container { 
+            background: #1a1a1a; padding: 40px; border-radius: 20px; 
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8); text-align: center; width: 450px; 
+            border: 1px solid #333;
+        }
+        h3 { margin-top: 0; color: #eee; letter-spacing: 1px; }
+        
+        /* 等化器畫布 */
+        canvas { width: 100%; height: 120px; background: #000; border-radius: 10px; margin-bottom: 20px; box-shadow: inset 0 0 10px #000; }
+
+        /* 時間顯示 */
+        .time-display { font-family: 'Courier New', Courier, monospace; font-size: 1.2rem; margin-bottom: 10px; color: var(--primary-color); }
+
+        /* 進度條樣式 */
+        input[type="range"] { width: 100%; cursor: pointer; accent-color: var(--primary-color); margin-bottom: 20px; }
+
+        .controls { display: flex; justify-content: space-between; align-items: center; }
+        button { 
+            background: #2a2a2a; color: white; border: 1px solid #444; 
+            padding: 12px 20px; border-radius: 8px; cursor: pointer; 
+            transition: all 0.2s; font-size: 0.9rem;
+        }
+        button:hover { background: #444; border-color: var(--primary-color); transform: translateY(-2px); }
+        button:active { transform: translateY(0); }
+
+        .hint { font-size: 0.8rem; color: #666; margin-top: 25px; line-height: 1.6; }
+        b { color: #aaa; }
+    </style>
+</head>
+<body>
+
+<div class="player-container">
+    <h3>Podcast Player</h3>
+    
+    <canvas id="visualizer"></canvas>
+
+    <div class="time-display" id="timeShow">00:00 / 00:00</div>
+
+    <input type="range" id="progress" value="0" step="1">
+    
+    <div class="controls">
+        <button id="prevBtn">⏪ -10s</button>
+        <button id="playBtn" style="min-width: 120px;">▶ 播放</button>
+        <button id="nextBtn">⏩ +10s</button>
+    </div>
+
+    <div class="hint">
+        快速鍵指南：<br>
+        <b>[空白鍵]</b> 播放/暫停 | <b>[ ← / → ]</b> 增減 10 秒
+    </div>
+
+    <audio id="mainAudio" src="keyboardMouse/podcast.mp3"></audio>
+</div>
+
+<script>
+    const audio = document.getElementById('mainAudio');
+    const playBtn = document.getElementById('playBtn');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const progress = document.getElementById('progress');
+    const timeShow = document.getElementById('timeShow');
+    const canvas = document.getElementById('visualizer');
+    const ctx = canvas.getContext('2d');
+
+    let audioCtx, analyser, source, dataArray;
+    let initialized = false;
+    let hue = 200; // 初始顏色（藍色調）
+
+    // 格式化時間 (秒 -> 00:00)
+    function formatTime(seconds) {
+        const min = Math.floor(seconds / 60);
+        const sec = Math.floor(seconds % 60);
+        return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    }
+
+    // 播放/暫停邏輯
+    function togglePlay() {
+        if (audio.paused) {
+            audio.play();
+            playBtn.innerText = "⏸ 暫停";
+            if (!initialized) setupVisualizer();
+        } else {
+            audio.pause();
+            playBtn.innerText = "▶ 播放";
+        }
+    }
+
+    // 初始化 Web Audio API (等化器)
+    function setupVisualizer() {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioCtx.createAnalyser();
+        source = audioCtx.createMediaElementSource(audio);
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        
+        analyser.fftSize = 128; // 決定長條圖的密度
+        const bufferLength = analyser.frequencyBinCount;
+        dataArray = new Uint8Array(bufferLength);
+        initialized = true;
+        draw();
+    }
+
+    // 繪製動態等化器
+    function draw() {
+        requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(dataArray);
+
+        // 背景微透明刷新，產生殘影效果
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const barWidth = (canvas.width / dataArray.length) * 2;
+        let x = 0;
+
+        dataArray.forEach((val) => {
+            const barHeight = (val / 255) * canvas.height;
+            
+            // 隨機跳動顏色邏輯：HSL(色相, 飽和度, 亮度)
+            hue = (hue + 0.05) % 360; 
+            ctx.fillStyle = `hsl(${hue}, 80%, 60%)`;
+
+            ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+            x += barWidth;
+        });
+    }
+
+    // 鍵盤事件
+    window.addEventListener('keydown', (e) => {
+        if (e.code === "Space") {
+            e.preventDefault(); 
+            togglePlay();
+        }
+        if (e.code === "ArrowLeft") audio.currentTime -= 10;
+        if (e.code === "ArrowRight") audio.currentTime += 10;
+    });
+
+    // 按鈕點擊
+    playBtn.onclick = togglePlay;
+    prevBtn.onclick = () => audio.currentTime -= 10;
+    nextBtn.onclick = () => audio.currentTime += 10;
+
+    // 更新進度條與時間顯示
+    audio.onloadedmetadata = () => {
+        progress.max = audio.duration;
+        updateTimeText();
+    };
+
+    audio.ontimeupdate = () => {
+        progress.value = audio.currentTime;
+        updateTimeText();
+    };
+
+    function updateTimeText() {
+        timeShow.innerText = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration || 0)}`;
+    }
+
+    // 拖曳進度條
+    progress.oninput = () => audio.currentTime = progress.value;
+
+</script>
+
+</body>
+</html>
